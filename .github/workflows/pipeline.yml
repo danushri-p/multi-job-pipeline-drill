@@ -10,59 +10,128 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+
       - run: npm ci
+
       - run: npm run lint
 
   unit-tests:
     runs-on: ubuntu-latest
+
+    # Wait for lint
+    needs: lint
+
+    timeout-minutes: 15
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+
       - run: npm ci
+
       - run: npm test
 
   build:
     runs-on: ubuntu-latest
+
+    # Build after lint
+    needs: lint
+
+    timeout-minutes: 20
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+
       - run: npm ci
+
       - run: npm run build
-      # Problem 4: no upload-artifact step — dist/ is never saved
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-build
+          path: dist/
 
   integration-tests:
     runs-on: ubuntu-latest
+
+    # Needs build artifact
+    needs: build
+
+    timeout-minutes: 30
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+
       - run: npm ci
-      # Problem 2: no download-artifact — dist/ does not exist on this machine
+
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build
+          path: dist/
+
       - run: npm run test:integration
 
   deploy-staging:
     runs-on: ubuntu-latest
-    # Problem 3: no if condition — runs on every branch
+
+    # Wait for tests
+    needs:
+      - unit-tests
+      - integration-tests
+
+    timeout-minutes: 15
+
+    if: success() && github.ref == 'refs/heads/main'
+
     steps:
       - run: echo "Deploying to staging environment"
 
   deploy-production:
     runs-on: ubuntu-latest
+
+    # Wait for staging
+    needs: deploy-staging
+
+    timeout-minutes: 15
+
+    if: success() && github.ref == 'refs/heads/main'
+
     steps:
       - run: echo "Deploying to production environment"
 
   notify:
     runs-on: ubuntu-latest
-    # Problem 6: no if: always() — skipped when upstream fails
+
+    needs:
+      - lint
+      - unit-tests
+      - build
+      - integration-tests
+      - deploy-staging
+      - deploy-production
+
+    if: always()
+
     steps:
       - run: echo "Pipeline notification sent"
